@@ -8,6 +8,7 @@ import urllib2
 
 from . import config
 from .messages import *
+from . import globalnames as gn
 
 def update(anchors=False, biblio=False, linkDefaults=False):
     # If all are False, update everything
@@ -86,18 +87,17 @@ def updateCrossRefs():
                 exportED = False
             anchor = {
                 'status': rawAnchor['status'],
-                'type': type,
                 'spec': spec['vshortname'],
                 'shortname': spec['shortname'],
                 'level': int(spec['level']),
                 'export': rawAnchor.get('export', False),
                 'normative': rawAnchor.get('normative', False),
                 'url': spec[rawAnchor['status']] + rawAnchor['uri'],
-                'for': rawAnchor.get('for', [])
+                'globalnames': unicode(gn.GlobalNames(' '.join(rawAnchor.get('for',[]))).specialize(linkingTexts, type))
             }
             for text in linkingTexts:
                 anchors[text.lower()].append(anchor)
-        
+
     if not config.dryRun:
         try:
             with open(config.scriptPath+"/spec-data/specs.json", 'w') as f:
