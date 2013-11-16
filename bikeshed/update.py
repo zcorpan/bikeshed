@@ -41,7 +41,7 @@ def updateCrossRefs():
             list = []
         # Call with multiTree being a list of trees
         for item in multiTree:
-            if item['type'] not in ("section", "other"):
+            if item['type'] not in ("section", "other", "heading"):
                 list.append(item)
             if item.get('children'):
                 linearizeAnchorTree(item['children'], list)
