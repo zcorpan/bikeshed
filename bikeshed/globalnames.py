@@ -39,7 +39,7 @@ Seg = col.namedtuple('Seg', ['value', 'type'])
 class GlobalName(object):
     valid = True
 
-    def __init__(self, text=None, type=None, childType=None, partial=False, globalName=None):
+    def __init__(self, text=None, type=None, childType=None, partial=False, globalName=None, raw=False):
         '''
         Constructs a GlobalName from a string.
         If its first segment has a type, or you pass a type or a childType,
@@ -47,6 +47,9 @@ class GlobalName(object):
         Otherwise, it'll be left as reduced.
         If you indicate that it's a partial name,
         no canonicalization will occur.
+
+        "raw" means the passed-in string doesn't have any escaping done,
+        so there's no need to unescape.
         '''
         text = u(text)
         type = u(type)
@@ -60,8 +63,13 @@ class GlobalName(object):
             for piece in reversed(text.split('/')):
                 match = re.match(r"(.+)<([\w-]+)>$", piece)
                 if match:
-                    segs.append(Seg(match.group(1), match.group(2)))
+                    piece = match.group(1)
+                    if not raw:
+                        piece = GlobalName.unescapeText(piece)
+                    segs.append(Seg(piece, match.group(2)))
                 else:
+                    if not raw:
+                        piece = GlobalName.unescapeText(piece)
                     segs.append(Seg(piece, None))
             if not partial and (type is not None or childType is not None or segs[0].type is not None):
                 self.canonicalize(type=type, childType=childType)
@@ -70,13 +78,46 @@ class GlobalName(object):
         # If I haven't returned yet, something's invalid.
         self.valid = False
 
+    @staticmethod
+    def textAndType(text, type=None, raw=False):
+        '''
+        Simplified constructor that doesn't look for any segments or embedded type.
+        '''
+        if not raw:
+            text = GlobalName.unescapeText(text)
+        x = GlobalName("")
+        x.segments = [Seg(text, type)]
+        return x
+
+    @staticmethod
+    def escapeText(string):
+        '''
+        The "text" part of a global name might contain /<> characters,
+        which'll screw up detection and round-tripping.
+        Instead, escape these characters.
+        Using a custom escaping syntax :foo:,
+        so you don't have to double-escape in HTML *or* JS.
+        '''
+        string = string.replace(":", ":colon:").replace("/", ":slash:")
+        if "<" in string[1:]:
+            string = string.replace("<", ":lt:")
+        return string
+
+    @staticmethod
+    def unescapeText(string):
+        x = string.replace(":gt:", ">").replace(":lt:", "<").replace(":slash:", "/").replace(":colon:", ":")
+        if string != x:
+            print string
+            print x
+        return x
+
     def __unicode__(self):
         strPieces = []
         for segment in reversed(self.segments):
             if segment[1] is not None:
-                strPieces.append(u"{0}<{1}>".format(*segment))
+                strPieces.append(u"{0}<{1}>".format(GlobalName.escapeText(segment.value), segment.type))
             else:
-                strPieces.append(segment.value)
+                strPieces.append(GlobalName.escapeText(segment.value))
         return u'/'.join(strPieces)
 
     def __str__(self):
@@ -157,6 +198,7 @@ class GlobalName(object):
 
     def specialize(self, text, type=None):
         self.segments.insert(0, Seg(text, type))
+        return self
 
     def __eq__(self, other):
         '''
@@ -182,7 +224,7 @@ class GlobalName(object):
 
 
 class GlobalNames(col.Set, col.Hashable):
-    def __init__(self, text=None, type=None, childType=None):
+    def __init__(self, text=None, type=None, childType=None, raw=False):
         self.__names = set()
         text = u(text)
         type = u(type)
@@ -194,13 +236,13 @@ class GlobalNames(col.Set, col.Hashable):
                 if isinstance(t, GlobalName):
                     self.__names.add(t)
                 else:
-                    self.__names.add(GlobalName(t, type=type, childType=childType))
+                    self.__names.add(GlobalName(t, type=type, childType=childType, raw=raw))
         self.filter().canonicalize()
 
     @staticmethod
     def __splitNames(namesText):
         '''
-        If global names are space-separated, you can't just split on spaces.
+        If global names are comma-separated, you can't just split on commas.
         "Foo/bar(baz, qux)" is a valid global name, for example.
         So far, only need to respect parens, which is easy.
         '''
@@ -209,7 +251,7 @@ class GlobalNames(col.Set, col.Hashable):
             return []
         names = []
         nesting = 0
-        for chunk in namesText.strip().split():
+        for chunk in namesText.strip().split(','):
             if nesting == 0:
                 names.append(chunk)
             elif nesting > 0:
@@ -225,13 +267,16 @@ class GlobalNames(col.Set, col.Hashable):
             return []
         return names
 
-    def specialize(self, texts, type=None):
+    def specialize(self, texts, type=None, raw=False):
         type = u(type)
         if isinstance(texts, basestring):
             texts = [texts]
         for text in texts:
-            for name in self.__names:
-                name.specialize(u(text), type)
+            if self.__names:
+                for name in self.__names:
+                    name.specialize(u(text), type)
+            else:
+                self.__names.add(GlobalName.textAndType(text=text, type=type, raw=raw))
         return self.canonicalize()
 
     def canonicalize(self, type=None, childType=None):
@@ -273,7 +318,7 @@ class GlobalNames(col.Set, col.Hashable):
     __hash__ = col.Set._hash
 
     def __unicode__(self):
-        return u' '.join(map(unicode,self))
+        return u', '.join(map(unicode,self))
 
     def __str__(self):
         return unicode(self).encode('utf-8')
