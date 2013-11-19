@@ -1175,6 +1175,8 @@ class CSSSpec(object):
             die("Couldn't open the input file '{0}'.", inputFilename)
             return
 
+        self.paragraphMode = paragraphMode
+
         bibliofh = retrieveCachedFile(cacheLocation=config.scriptPath + "/spec-data/biblio.refer",
                                       fallbackurl="https://www.w3.org/Style/Group/css3-src/biblio.ref",
                                       type="bibliography")
@@ -1191,51 +1193,12 @@ class CSSSpec(object):
             bibliofh.close()
 
         # Load up the xref data
-        self.refs.specs = json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/specs.json",
-                                      type="spec list", quiet=True))
-        self.refs.refs = defaultdict(list, json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/anchors.json",
+        self.refs.loadSpecs(json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/specs.json",
+                                      type="spec list", quiet=True)))
+        self.refs.loadRefs(json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/anchors.json",
                                       type="anchor data", quiet=True)))
-        self.refs.defaultSpecs = defaultdict(list, json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/link-defaults.json",
+        self.refs.loadLinkDefaults(json.load(retrieveCachedFile(cacheLocation=config.scriptPath+"/spec-data/link-defaults.json",
                                       type="link defaults", quiet=True)))
-        if "css21Replacements" in self.refs.defaultSpecs:
-            self.refs.css21Replacements = set(self.refs.defaultSpecs["css21Replacements"])
-            del self.refs.defaultSpecs["css21Replacements"]
-        if "ignoredSpecs" in self.refs.defaultSpecs:
-            self.refs.ignoredSpecs = set(self.refs.defaultSpecs["ignoredSpecs"])
-            del self.refs.defaultSpecs["ignoredSpecs"]
-        if "customDfns" in self.refs.defaultSpecs:
-            for specName, specUrl, dfnText, dfnType, dfnUrl in self.refs.defaultSpecs["customDfns"]:
-                if specName not in self.refs.specs:
-                    levelMatch = re.match("(.*)-(\d+)", specName)
-                    if levelMatch:
-                        shortname = levelMatch.group(1)
-                        level = levelMatch.group(2)
-                    else:
-                        shortname = specName
-                        level = "1"
-                    self.refs.specs[specName] = {
-                        "description": "Custom Spec Link for {0}".format(specName),
-                        "title": "Custom Spec Link for {0}".format(specName),
-                        "level": int(level),
-                        "TR": specUrl,
-                        "shortname": shortname,
-                        "vshortname": specName
-                    }
-                spec = self.refs.specs[specName]
-                self.refs.refs[dfnText].append({
-                    "status": "TR",
-                    "export": True,
-                    "for": [],
-                    "level": spec['level'],
-                    "url": specUrl + dfnUrl,
-                    "normative": True,
-                    "shortname": spec['shortname'],
-                    "spec": spec['vshortname'],
-                    "type": dfnType
-                })
-            del self.refs.defaultSpecs["customDfns"]
-
-        self.paragraphMode = paragraphMode
 
     def preprocess(self):
         # Textual hacks

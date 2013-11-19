@@ -4,6 +4,7 @@ from collections import defaultdict
 from .fuckunicode import u
 from .messages import *
 from .htmlhelpers import *
+import globalnames as gn
 
 class ReferenceManager(object):
 
@@ -43,6 +44,59 @@ class ReferenceManager(object):
         # so you don't end up accidentally linking to something that's been removed from the local copy.
         for term, refs in self.refs.items():
             self.refs[term] = [ref for ref in refs if ref['shortname']!=self.specName]
+
+    def loadSpecs(self, data):
+        # Data is a json file of specs, assumed to be the specs.json file.
+        self.specs = data
+
+    def loadRefs(self, data):
+        # Data is a json file of ref data, assumed to be the anchors.json file.
+        self.refs = defaultdict(list, data)
+        for id, refs in self.refs.items():
+            for ref in refs:
+                ref['globalnames'] = gn.GlobalNames(ref['globalnames'])
+
+    def loadLinkDefaults(self, data):
+        # Data is a json file of ref data, assumed to be the link-defaults.json file.
+        # Must be called *after* loading up the refs.
+        if "css21Replacements" in data:
+            self.css21Replacements = set(data["css21Replacements"])
+            del data["css21Replacements"]
+        if "ignoredSpecs" in data:
+            self.ignoredSpecs = set(data["ignoredSpecs"])
+            del data["ignoredSpecs"]
+        if "customDfns" in data:
+            for specName, specUrl, dfnText, dfnType, dfnUrl in data["customDfns"]:
+                if specName not in self.specs:
+                    levelMatch = re.match("(.*)-(\d+)", specName)
+                    if levelMatch:
+                        shortname = levelMatch.group(1)
+                        level = levelMatch.group(2)
+                    else:
+                        shortname = specName
+                        level = "1"
+                    self.specs[specName] = {
+                        "description": "Custom Spec Link for {0}".format(specName),
+                        "title": "Custom Spec Link for {0}".format(specName),
+                        "level": int(level),
+                        "TR": specUrl,
+                        "shortname": shortname,
+                        "vshortname": specName
+                    }
+                spec = self.specs[specName]
+                self.refs[dfnText].append({
+                    "status": "TR",
+                    "export": True,
+                    "for": [],
+                    "level": spec['level'],
+                    "url": specUrl + dfnUrl,
+                    "normative": True,
+                    "shortname": spec['shortname'],
+                    "spec": spec['vshortname'],
+                    "type": dfnType
+                })
+            del data["customDfns"]
+        self.defaultSpecs = defaultdict(list, data)
 
     def addLocalDfns(self, dfns):
         for el in dfns:

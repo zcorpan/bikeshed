@@ -106,9 +106,6 @@ class GlobalName(object):
     @staticmethod
     def unescapeText(string):
         x = string.replace(":gt:", ">").replace(":lt:", "<").replace(":slash:", "/").replace(":colon:", ":")
-        if string != x:
-            print string
-            print x
         return x
 
     def __unicode__(self):
