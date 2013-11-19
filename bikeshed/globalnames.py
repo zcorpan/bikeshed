@@ -258,7 +258,12 @@ class GlobalNames(col.Set, col.Hashable):
                 # Unbalanced parens?
                 die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
                 return []
-            nesting += chunk.count("(") - chunk.count(")")
+            # Special-case the <(-token> and <)-token> strings.
+            # This isn't a *good* way to handle this, but it'll work.
+            if "<(-token>" in chunk or "<)-token>" in chunk:
+                continue
+            else:
+                nesting += chunk.count("(") - chunk.count(")")
         if nesting != 0:
             die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
             return []
