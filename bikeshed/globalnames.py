@@ -228,6 +228,8 @@ class GlobalNames(col.Set, col.Hashable):
         childType = u(childType)
         if isinstance(text, basestring):
             text = GlobalNames.__splitNames(text)
+        if isinstance(text, GlobalName):
+            self.__names.add(text)
         if isinstance(text, col.Sequence):
             for t in text:
                 if isinstance(t, GlobalName):
