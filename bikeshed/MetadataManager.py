@@ -35,6 +35,7 @@ class MetadataManager:
         self.testSuite = None
         self.mailingList = None
         self.mailingListArchives = None
+        self.statusText = ""
 
         self.otherMetadata = defaultdict(list)
 
