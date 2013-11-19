@@ -93,6 +93,7 @@ def updateCrossRefs():
                 'export': rawAnchor.get('export', False),
                 'normative': rawAnchor.get('normative', False),
                 'url': spec[rawAnchor['status']] + rawAnchor['uri'],
+                'type': type,
                 'for': rawAnchor.get('for', []),
                 'globalnames': unicode(gn.GlobalNames(', '.join(rawAnchor.get('for',[]))).specialize(linkingTexts, type))
             }
