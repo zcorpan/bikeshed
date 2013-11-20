@@ -78,6 +78,9 @@ class GlobalName(object):
         # If I haven't returned yet, something's invalid.
         self.valid = False
 
+    def toSet(self):
+        return GlobalNames(self)
+
     @staticmethod
     def textAndType(text, type=None, raw=False):
         '''
@@ -227,7 +230,7 @@ class GlobalNames(col.Set, col.Hashable):
         type = u(type)
         childType = u(childType)
         if isinstance(text, basestring):
-            text = GlobalNames.__splitNames(text)
+            text = splitNames(text)
         if isinstance(text, GlobalName):
             self.__names.add(text)
         if isinstance(text, col.Sequence):
@@ -237,39 +240,6 @@ class GlobalNames(col.Set, col.Hashable):
                 else:
                     self.__names.add(GlobalName(t, type=type, childType=childType, raw=raw))
         self.filter().canonicalize()
-
-    @staticmethod
-    def __splitNames(namesText):
-        '''
-        If global names are comma-separated, you can't just split on commas.
-        "Foo/bar(baz, qux)" is a valid global name, for example.
-        So far, only need to respect parens, which is easy.
-        '''
-        namesText = u(namesText)
-        if not namesText:
-            return []
-        names = []
-        nesting = 0
-        for chunk in namesText.strip().split(','):
-            if nesting == 0:
-                names.append(chunk)
-            elif nesting > 0:
-                # Inside of a parenthesized section
-                names[-1] += u" " + chunk
-            else:
-                # Unbalanced parens?
-                die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
-                return []
-            # Special-case the <(-token> and <)-token> strings.
-            # This isn't a *good* way to handle this, but it'll work.
-            if "<(-token>" in chunk or "<)-token>" in chunk:
-                continue
-            else:
-                nesting += chunk.count("(") - chunk.count(")")
-        if nesting != 0:
-            die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
-            return []
-        return names
 
     def specialize(self, texts, type=None, raw=False):
         type = u(type)
@@ -326,3 +296,36 @@ class GlobalNames(col.Set, col.Hashable):
 
     def __str__(self):
         return unicode(self).encode('utf-8')
+
+
+def splitNames(namesText):
+    '''
+    If global names are comma-separated, you can't just split on commas.
+    "Foo/bar(baz, qux)" is a valid global name, for example.
+    So far, only need to respect parens, which is easy.
+    '''
+    namesText = u(namesText)
+    if not namesText:
+        return []
+    names = []
+    nesting = 0
+    for chunk in namesText.strip().split(','):
+        if nesting == 0:
+            names.append(chunk)
+        elif nesting > 0:
+            # Inside of a parenthesized section
+            names[-1] += u" " + chunk
+        else:
+            # Unbalanced parens?
+            die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
+            return []
+        # Special-case the <(-token> and <)-token> strings.
+        # This isn't a *good* way to handle this, but it'll work.
+        if "<(-token>" in chunk or "<)-token>" in chunk:
+            continue
+        else:
+            nesting += chunk.count("(") - chunk.count(")")
+    if nesting != 0:
+        die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
+        return []
+    return names
