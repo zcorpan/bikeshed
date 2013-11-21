@@ -52,9 +52,10 @@ class ReferenceManager(object):
     def loadRefs(self, data):
         # Data is a json file of ref data, assumed to be the anchors.json file.
         self.refs = defaultdict(list, data)
+        # Turn the globalnames text into real objects
         for id, refs in self.refs.items():
             for ref in refs:
-                ref['globalnames'] = gn.GlobalNames(ref['globalnames'])
+                ref['globalnames'] = gn.GlobalNames.parse(ref['globalnames'])
 
     def loadLinkDefaults(self, data):
         # Data is a json file of ref data, assumed to be the link-defaults.json file.
@@ -93,7 +94,8 @@ class ReferenceManager(object):
                     "normative": True,
                     "shortname": spec['shortname'],
                     "spec": spec['vshortname'],
-                    "type": dfnType
+                    "type": dfnType,
+                    "globalnames": gn.GlobalName(dfnText, dfnType).toSet()
                 })
             del data["customDfns"]
         self.defaultSpecs = defaultdict(list, data)
@@ -105,29 +107,16 @@ class ReferenceManager(object):
             for linkText in linkTextsFromElement(el):
                 type = treeAttr(el, 'data-dfn-type')
                 dfnFor = treeAttr(el, 'data-dfn-for')
-                if dfnFor is None:
-                    dfnFor = set()
-                    if self.getLocalRef(type, linkText):
-                        die(u"Multiple local '{1}' <dfn>s have the same linking text '{0}'.", linkText, type)
-                        continue
-                else:
-                    dfnFor = set(dfnFor.split())
-                    encounteredError = False
-                    for singleFor in dfnFor:
-                        if self.getLocalRef(type, linkText, linkFor=singleFor):
-                            encounteredError = True
-                            die(u"Multiple local '{1}' <dfn>s for '{2}' have the same linking text '{0}'.", linkText, type, singleFor)
-                            break
-                    if encounteredError:
-                        continue
-                for term in dfnFor.copy():
-                    # Saying a value is for a descriptor with @foo/bar
-                    # should also make it for the bare descriptor bar.
-                    match = re.match("@[a-zA-Z0-9-_]+/(.*)", term)
-                    if match:
-                        dfnFor.add(match.group(1).strip())
-                # convert back into a list now, for easier JSONing
-                dfnFor = list(dfnFor)
+                namesAbove = gn.GlobalNames.parse(dfnFor)
+                globalnames = gn.GlobalName(linkText, type).toSet().addAbove(namesAbove)
+                encounteredError = False
+                for name in globalnames:
+                    if self.getLocalRef(name):
+                        encounteredError = True
+                        die(u"Multiple local '{0}' <dfn>s", unicode(name))
+                        break
+                if encounteredError:
+                    continue
                 if type in config.dfnTypes.union(["dfn"]):
                     existingAnchors = self.refs[linkText]
                     ref = {
@@ -138,7 +127,8 @@ class ReferenceManager(object):
                         "level":self.specLevel,
                         "url":"#"+el.get('id'),
                         "export":True,
-                        "for": dfnFor
+                        "for": dfnFor,
+                        "globalnames": globalnames
                     }
                     self.refs[linkText].append(ref)
 
