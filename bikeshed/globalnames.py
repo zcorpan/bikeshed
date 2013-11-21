@@ -6,6 +6,8 @@ from . import config
 from .ReferenceManager import linkTextsFromElement
 from .fuckunicode import u
 
+die = warn
+
 '''
 A global name uniquely identifies a definition
 as a sequence of (value, type) tuples,
@@ -39,7 +41,23 @@ Seg = col.namedtuple('Seg', ['value', 'type'])
 class GlobalName(object):
     valid = True
 
-    def __init__(self, text=None, type=None, childType=None, partial=False, globalName=None, raw=False):
+    def __init__(self, val=None, type=None, raw=False):
+        '''
+        "raw" means the passed-in string doesn't have any escaping done,
+        so there's no need to unescape.
+        '''
+        if isinstance(val, GlobalName):
+            self.segments = copy.deepcopy(val.segments)
+            return
+        seg = makeSegment(val, type)
+        if seg is not None:
+            self.segments = [seg]
+        else:
+            self.segments = []
+        self.validate()
+
+    @classmethod
+    def parse(cls, text, raw=False, type=None, childType=None, partial=False):
         '''
         Constructs a GlobalName from a string.
         If its first segment has a type, or you pass a type or a childType,
@@ -47,50 +65,29 @@ class GlobalName(object):
         Otherwise, it'll be left as reduced.
         If you indicate that it's a partial name,
         no canonicalization will occur.
-
-        "raw" means the passed-in string doesn't have any escaping done,
-        so there's no need to unescape.
         '''
-        text = u(text)
-        type = u(type)
-        childType = u(childType)
-        self.segments = []
-        if isinstance(globalName, GlobalName):
-            self.segments = copy.deepcopy(val.segments)
-            return
-        if text is not None:
-            segs = self.segments
-            for piece in reversed(text.split('/')):
-                match = re.match(r"(.+)<([\w-]+)>$", piece)
-                if match:
-                    piece = match.group(1)
-                    if not raw:
-                        piece = GlobalName.unescapeText(piece)
-                    segs.append(Seg(piece, match.group(2)))
-                else:
-                    if not raw:
-                        piece = GlobalName.unescapeText(piece)
-                    segs.append(Seg(piece, None))
-            if not partial and (type is not None or childType is not None or segs[0].type is not None):
-                self.canonicalize(type=type, childType=childType)
-            if self.validate():
-                return
-        # If I haven't returned yet, something's invalid.
-        self.valid = False
+        name = cls()
+        segs = name.segments
+        for piece in reversed(text.split('/')):
+            # Look for type information at the end of the segment.
+            match = re.match(r"(.+)<([\w-]+)>$", piece)
+            if match:
+                piece = match.group(1)
+                if not raw:
+                    piece = GlobalName.unescapeText(piece)
+                segs.append(Seg(piece, match.group(2)))
+            else:
+                # No type info found
+                if not raw:
+                    piece = GlobalName.unescapeText(piece)
+                segs.append(Seg(piece, None))
+        if not partial and (type is not None or childType is not None or segs[0].type is not None):
+            name.canonicalize(type=type, childType=childType)
+        name.validate()
+        return name
 
     def toSet(self):
         return GlobalNames(self)
-
-    @staticmethod
-    def textAndType(text, type=None, raw=False):
-        '''
-        Simplified constructor that doesn't look for any segments or embedded type.
-        '''
-        if not raw:
-            text = GlobalName.unescapeText(text)
-        x = GlobalName("")
-        x.segments = [Seg(text, type)]
-        return x
 
     @staticmethod
     def escapeText(string):
@@ -187,7 +184,7 @@ class GlobalName(object):
         For now, just makes sure that types are well-known.
         '''
         # TODO: Decide whether I should try and enforce type structures.
-        knownTypes = config.dfnTypes.union(["dfn"])
+        knownTypes = config.linkTypes.union(["dfn"])
         for i, segment in enumerate(self.segments):
             if segment.type is None or segment.type in knownTypes:
                 pass
@@ -196,8 +193,26 @@ class GlobalName(object):
                 self.valid = False
         return self
 
-    def specialize(self, text, type=None):
-        self.segments.insert(0, Seg(text, type))
+    def addBelow(self, name=None, text=None, type=None):
+        if name is not None:
+            self.segments[:0] = copy.deepcopy(name.segments)
+        elif text is not None:
+            seg = makeSegment(text, type)
+            if seg:
+                self.segments.insert(0,seg)
+        else:
+            die("Attempted to add below a globalname, but didn't specify anything.")
+        return self
+
+    def addAbove(self, name=None, text=None, type=None):
+        if name is not None:
+            self.segments.extend(copy.deepcopy(name.segments))
+        elif text is not None:
+            seg = makeSegment(text, type)
+            if seg:
+                self.segments.append(seg)
+        else:
+            die("Attempted to add above a globalname, but didn't specify anything.")
         return self
 
     def __eq__(self, other):
@@ -224,44 +239,73 @@ class GlobalName(object):
 
 
 class GlobalNames(col.Set, col.Hashable):
-    def __init__(self, text=None, type=None, childType=None, raw=False):
-        self.__names = set()
-        text = u(text)
-        type = u(type)
-        childType = u(childType)
-        if isinstance(text, basestring):
-            text = splitNames(text)
-        if isinstance(text, GlobalName):
-            self.__names.add(text)
-        if isinstance(text, col.Sequence):
-            for t in text:
-                if isinstance(t, GlobalName):
-                    self.__names.add(t)
-                else:
-                    self.__names.add(GlobalName(t, type=type, childType=childType, raw=raw))
+    def __init__(self, *names):
+        self.names = set()
+        for name in names:
+            if isinstance(name, GlobalName):
+                self.names.add(name)
+            else:
+                die("GlobalNames() constructor only accepts GlobalName objects.")
         self.filter().canonicalize()
 
-    def specialize(self, texts, type=None, raw=False):
-        type = u(type)
-        if isinstance(texts, basestring):
-            texts = [texts]
-        for text in texts:
-            if self.__names:
-                for name in self.__names:
-                    name.specialize(u(text), type)
+    @classmethod
+    def parse(cls, text, type=None, childType=None, raw=False):
+        texts = splitNames(text)
+        names = cls()
+        names.names = set(GlobalName.parse(text, type=type, childType=childType, raw=raw) for text in texts)
+        return names
+
+    def addBelow(self, text=None, type=None, *names):
+        seg = makeSegment(text, type)
+        if not names and not seg:
+            die("Attempted to add below a globalname, but didn't specify anything.")
+            return self
+        if seg:
+            if self:
+                self.names = set(name.addBelow(text=text, type=type) for name in self)
             else:
-                self.__names.add(GlobalName.textAndType(text=text, type=type, raw=raw))
+                self.names.add(GlobalName(text, type))
+        elif names:
+            if self:
+                newnames = set()
+                for sname in self:
+                    for name in names:
+                        newnames.add(GlobalName(sname).addBelow(name=name))
+                self.names = newnames
+            else:
+                self.names.extend(names)
+        return self.canonicalize()
+
+    def addAbove(self, text=None, type=None, *names):
+        seg = makeSegment(text, type)
+        if not names and not seg:
+            die("Attempted to add above a globalname, but didn't specify anything.")
+            return self
+        if seg:
+            if self:
+                self.names = set(name.addAbove(text=text, type=type) for name in self)
+            else:
+                self.names.add(GlobalName(text, type))
+        elif names:
+            if self:
+                newnames = set()
+                for sname in self:
+                    for name in names:
+                        newnames.add(GlobalName(sname).addAbove(name=name))
+                self.names = newnames
+            else:
+                self.names.extend(names)
         return self.canonicalize()
 
     def canonicalize(self, type=None, childType=None):
         type = u(type)
         childType = u(childType)
-        for name in self.__names:
+        for name in self.names:
             name.canonicalize(type=type, childType=childType)
         return self
 
     def filter(self):
-        self.__names = set(name for name in self.__names if name.validate().valid)
+        self.names = set(name for name in self.names if name.validate().valid)
         return self
 
     def matches(self, other):
@@ -272,7 +316,7 @@ class GlobalNames(col.Set, col.Hashable):
         texts = linkTextsFromElement(el)
         type = u(el.get('data-dfn-type') or el.get('data-link-type') or el.get('data-idl-type'))
         forText = u(el.get('data-dfn-for') or el.get('data-link-for') or el.get('data-idl-for'))
-        return cls(forText).specialize(texts, type)
+        return cls(forText).addBelow(texts, type)
 
     @classmethod
     def refsFromEl(cls, el):
@@ -284,10 +328,13 @@ class GlobalNames(col.Set, col.Hashable):
         return any(x == other for x in self)
 
     def __iter__(self):
-        return self.__names.__iter__()
+        return self.names.__iter__()
 
     def __len__(self):
-        return len(self.__names)
+        return len(self.names)
+
+    def __nonzero__(self):
+        return len(self) > 0
 
     __hash__ = col.Set._hash
 
@@ -328,4 +375,12 @@ def splitNames(namesText):
     if nesting != 0:
         die("Found unbalanced parens when processing the globalnames:\n{0}", namesText)
         return []
+    names = [name.strip() for name in names]
     return names
+
+def makeSegment(text, type):
+    text = (u(text) or "").strip()
+    type = u(type)
+    if text == "":
+        return None
+    return Seg(text, type)
