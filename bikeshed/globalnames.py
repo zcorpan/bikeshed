@@ -229,10 +229,28 @@ class GlobalName(object):
             return False
         if not self.valid or not other.valid:
             return False
+
+        def compareTypes(t1, t2, reversed=False):
+            if t1 is None:
+                return True
+            if t1 == t2:
+                return True
+            if t1 == "propdesc" and t2 in ["property", "descriptor"]:
+                return True
+            if t1 == "functionish" and t2 in ["function", "method"]:
+                return True
+            if t1 == "idl" and t2 in config.idlTypes:
+                return True
+            if t1 == "maybe" and t2 in config.maybeTypes.union(["dfn"]):
+                return True
+            if not reversed:
+                return compareTypes(t2, t1, reversed=True)
+            return False
+
         for s1, s2 in zip(self.segments, other.segments):
             if s1.value != s2.value:
                 return False
-            if s1.type is not None and s2.type is not None and s1.type != s2.type:
+            if not compareTypes(s1.type, s2.type):
                 return False
         return True
 

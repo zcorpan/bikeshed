@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import re
+import copy
 from collections import defaultdict
 from .fuckunicode import u
 from .messages import *
@@ -132,11 +133,9 @@ class ReferenceManager(object):
                     }
                     self.refs[linkText].append(ref)
 
-    def getLocalRef(self, linkType, text, linkFor=None, el=None):
-        refs = filterRefsByTypeAndText(self.refs, linkType, text)
+    def getLocalRef(self, name, el=None):
+        refs = filterRefsByTypeAndText(self.refs, name)
         refs = [ref for ref in refs if ref['status'] == "local"]
-        if linkFor:
-            refs = [ref for ref in refs if linkFor in ref['for']]
         return refs
 
     def getRef(self, linkType, text, spec=None, status=None, linkFor=None, error=True, el=None):
@@ -303,10 +302,10 @@ def linkTextVariations(str):
     if str[-1:] == u"’":
         yield str[:-1]
 
-def filterRefsByTypeAndText(allRefs, linkType, linkText, error=False):
+def filterRefsByName(allRefs, name, error=False):
     '''Filter by type/text to find all the candidate refs'''
 
-    def filterRefs(allRefs, dfnTypes, linkTexts):
+    def filterRefs(allRefs, names):
         # Allow either a string or an iter of strings
         if isinstance(dfnTypes, basestring):
             dfnTypes = [dfnTypes]
@@ -315,7 +314,10 @@ def filterRefsByTypeAndText(allRefs, linkType, linkText, error=False):
         dfnTypes = set(dfnTypes)
         return [ref for linkText in linkTexts for ref in allRefs.get(linkText,[]) if ref['type'] in dfnTypes]
 
-    if linkType in config.dfnTypes:
+    if linkType == "maybe":
+        name2 = gn.GlobalName
+        return filterRefs(allRefs, [name])
+    if linkType in config.linkTypes.union(["dfn"]):
         return filterRefs(allRefs, [linkType], linkText)
     elif linkType == "propdesc":
         return filterRefs(allRefs, ["property", "descriptor"], linkText)
